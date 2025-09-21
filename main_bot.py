@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands
 import os
 import logging
-from keep_alive import keep_alive, start_ping
 
 # ----------------- 로깅 설정 -----------------
 logging.basicConfig(
@@ -69,11 +68,7 @@ if __name__ == '__main__':
         logging.error("❌ DISCORD_BOT_TOKEN 환경변수가 설정되지 않았습니다!")
         exit(1)
     
-    # Keep-alive 서버 시작
-    keep_alive()
-    start_ping()
-    
-    # 봇 실행
+    # 봇 실행 (keep_alive 제거됨)
     bot = MyBot()
     try:
         bot.run(BOT_TOKEN)
