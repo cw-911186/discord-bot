@@ -64,18 +64,27 @@ class LOLRanking(commands.Cog):
         self.ranking_update.cancel()
 
     @staticmethod
-    def extract_lol_nickname(display_name: str) -> str:
-        """닉네임에서 롤 닉네임 추출"""
+    def extract_lol_nickname(display_name: str) -> tuple:
+        """닉네임에서 롤 닉네임과 태그 추출: '별명/출생년도/롤닉네임#태그' -> ('롤닉네임', '태그')"""
         try:
             parts = display_name.split('/')
             if len(parts) >= 3:
-                lol_name = parts[2].strip()
-                if '#' in lol_name:
-                    lol_name = lol_name.split('#')[0]
-                return lol_name
-            return None
+                lol_full = parts[2].strip()
+                
+                # '#' 태그가 있는 경우만 처리
+                if '#' in lol_full:
+                    name_parts = lol_full.split('#')
+                    if len(name_parts) == 2:
+                        lol_name = name_parts[0].strip()
+                        tag = name_parts[1].strip().upper()  # 태그는 대문자로 통일
+                        
+                        # 빈 문자열 체크
+                        if lol_name and tag:
+                            return (lol_name, tag)
+                
+            return (None, None)
         except:
-            return None
+            return (None, None)
 
     async def make_api_request(self, url: str, headers: dict) -> dict:
         """Rate Limit을 준수하는 API 요청"""
@@ -100,7 +109,7 @@ class LOLRanking(commands.Cog):
             print(f"요청 오류: {e}")
             return None
 
-    async def get_riot_puuid(self, game_name: str, tag_line: str = "KR1") -> str:
+    async def get_riot_puuid(self, game_name: str, tag_line: str) -> str:
         """Rate Limited PUUID 조회"""
         if not self.riot_api_key:
             return None
@@ -156,31 +165,32 @@ class LOLRanking(commands.Cog):
 
     async def get_user_rank_data(self, member: discord.Member) -> dict:
         """멤버의 랭크 데이터 가져오기 (Rate Limited)"""
-        lol_name = self.extract_lol_nickname(member.display_name)
-        if not lol_name:
+        lol_name, tag = self.extract_lol_nickname(member.display_name)
+        if not lol_name or not tag:
             return None
             
-        print(f"처리 중: {member.display_name} ({lol_name})")
+        print(f"처리 중: {member.display_name} ({lol_name}#{tag})")
         
         # 1단계: PUUID 가져오기
-        puuid = await self.get_riot_puuid(lol_name)
+        puuid = await self.get_riot_puuid(lol_name, tag)
         if not puuid:
-            print(f"  PUUID 조회 실패: {lol_name}")
+            print(f"  PUUID 조회 실패: {lol_name}#{tag}")
             return None
             
         # 2단계: 소환사 정보 가져오기
         summoner = await self.get_summoner_by_puuid(puuid)
         if not summoner:
-            print(f"  소환사 정보 조회 실패: {lol_name}")
+            print(f"  소환사 정보 조회 실패: {lol_name}#{tag}")
             return None
             
         # 3단계: 랭크 정보 가져오기
         ranks = await self.get_rank_info(summoner['id'])
         
-        print(f"  완료: {lol_name}")
+        print(f"  완료: {lol_name}#{tag}")
         return {
             'discord_name': member.display_name,
             'lol_name': lol_name,
+            'tag': tag,
             'summoner_name': summoner.get('name', lol_name),
             'level': summoner.get('summonerLevel', 0),
             'ranks': ranks
