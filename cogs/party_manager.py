@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord import ui, app_commands
 import asyncio
 
-# --- 파티 카드 View (참가/관전 버튼) ---
+# --- 파티 카드 View (참가자/관전자 버튼) ---
 class PartyCardView(ui.View):
     def __init__(self, bot, party_vc_id):
         super().__init__(timeout=None)
@@ -54,31 +54,46 @@ class PartyCardView(ui.View):
         party_info = cog.active_parties.get(self.party_vc_id)
         if not party_info: return
 
-        # 다른 목록에 있으면 제거
-        if join_type == 'participant' and user.id in party_info['spectators']:
-            party_info['spectators'].remove(user.id)
-        elif join_type == 'spectator' and user.id in party_info['participants']:
-            party_info['participants'].remove(user.id)
-
-        # 인원 수 체크 (참가자만)
-        if join_type == 'participant' and user.id not in party_info['participants'] and len(party_info['participants']) >= party_info['max_size']:
-             await interaction.followup.send("❗ 파티 인원이 가득 찼습니다.", ephemeral=True)
-             return
+        # 참가자 버튼을 누른 경우
+        if join_type == 'participant':
+            # 이미 참가자인 경우 - 아무것도 하지 않음
+            if user.id in party_info['participants']:
+                await interaction.followup.send("이미 참가자로 등록되어 있습니다.", ephemeral=True)
+                return
+            
+            # 관전자에서 참가자로 이동 시도
+            if user.id in party_info['spectators']:
+                party_info['spectators'].remove(user.id)
+            
+            # 참가자 인원이 가득 찬 경우 관전자로 할당
+            if len(party_info['participants']) >= party_info['max_size']:
+                party_info['spectators'].add(user.id)
+                await interaction.followup.send("파티 인원이 가득 차서 관전자로 배정되었습니다.", ephemeral=True)
+            else:
+                party_info['participants'].add(user.id)
+                await interaction.followup.send("참가자로 배정되었습니다.", ephemeral=True)
         
-        # 목록에 추가 또는 제거 (토글 방식)
-        target_set = party_info['participants'] if join_type == 'participant' else party_info['spectators']
-        if user.id in target_set:
-            target_set.remove(user.id) # 이미 있으면 제거
-        else:
-            target_set.add(user.id) # 없으면 추가
+        # 관전자 버튼을 누른 경우
+        elif join_type == 'spectator':
+            # 이미 관전자인 경우 - 아무것도 하지 않음
+            if user.id in party_info['spectators']:
+                await interaction.followup.send("이미 관전자로 등록되어 있습니다.", ephemeral=True)
+                return
+            
+            # 참가자에서 관전자로 이동
+            if user.id in party_info['participants']:
+                party_info['participants'].remove(user.id)
+            
+            party_info['spectators'].add(user.id)
+            await interaction.followup.send("관전자로 배정되었습니다.", ephemeral=True)
         
         await self.update_embed(interaction)
 
-    @ui.button(label="참가/취소", style=discord.ButtonStyle.success, custom_id="party_join_participant_toggle")
+    @ui.button(label="참가자", style=discord.ButtonStyle.success, custom_id="party_join_participant")
     async def join_participant(self, interaction: discord.Interaction, button: ui.Button):
         await self.handle_join(interaction, 'participant')
 
-    @ui.button(label="관전/취소", style=discord.ButtonStyle.secondary, custom_id="party_join_spectator_toggle")
+    @ui.button(label="관전자", style=discord.ButtonStyle.secondary, custom_id="party_join_spectator")
     async def join_spectator(self, interaction: discord.Interaction, button: ui.Button):
         await self.handle_join(interaction, 'spectator')
 
@@ -208,6 +223,36 @@ class PartyManager(commands.Cog):
         except:
             return display_name # 형식에 맞지 않으면 전체 이름 반환
 
+    async def update_party_card(self, party_info):
+        """파티 카드를 업데이트하는 헬퍼 함수"""
+        if not party_info.get("party_card_message_id"):
+            return
+            
+        main_channel = self.bot.get_channel(self.bot.party_text_channel_id)
+        try:
+            msg = await main_channel.fetch_message(party_info["party_card_message_id"])
+            embed = msg.embeds[0]
+            
+            # 참가자/관전자 목록 업데이트
+            guild = main_channel.guild
+            participants_names = []
+            for uid in party_info['participants']:
+                user = guild.get_member(uid)
+                participants_names.append(self.get_short_name(user.display_name) if user else f"나간 유저({uid})")
+
+            spectators_names = []
+            for uid in party_info['spectators']:
+                user = guild.get_member(uid)
+                spectators_names.append(self.get_short_name(user.display_name) if user else f"나간 유저({uid})")
+
+            embed.set_field_at(2, name="👥 참가자 목록", value='\n'.join(participants_names) if participants_names else "없음", inline=True)
+            embed.set_field_at(3, name="👀 관전자 목록", value='\n'.join(spectators_names) if spectators_names else "없음", inline=True)
+            embed.set_field_at(1, name="📊 현재 인원", value=f"{len(party_info['participants'])} / {party_info['max_size']}", inline=False)
+            
+            await msg.edit(embed=embed)
+        except:
+            pass
+
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         trigger_channel_id = self.bot.party_trigger_channel_id
@@ -274,8 +319,38 @@ class PartyManager(commands.Cog):
                     if member.voice:
                         await member.move_to(before.channel)
 
-        # 파티 채널에서 나간 경우
+        # 파티 채널에 입장한 경우 - 자동 할당
+        if after.channel and after.channel.id in self.active_parties:
+            party_info = self.active_parties[after.channel.id]
+            
+            # 이미 목록에 있는지 확인 (파티장 제외, 새로 입장한 멤버만)
+            if (member.id not in party_info['participants'] and 
+                member.id not in party_info['spectators'] and 
+                member.id != party_info['leader_id']):
+                
+                # 참가자 자리가 있으면 참가자로, 없으면 관전자로 자동 할당
+                if len(party_info['participants']) < party_info['max_size']:
+                    party_info['participants'].add(member.id)
+                else:
+                    party_info['spectators'].add(member.id)
+                
+                # 파티 카드 업데이트
+                await self.update_party_card(party_info)
+
+        # 파티 채널에서 나간 경우 - 해당 유저를 참가자/관전자 목록에서 제거
         if before.channel and before.channel.id in self.active_parties:
+            party_info = self.active_parties[before.channel.id]
+            
+            # 나간 유저를 목록에서 제거
+            if member.id in party_info['participants']:
+                party_info['participants'].remove(member.id)
+            if member.id in party_info['spectators']:
+                party_info['spectators'].remove(member.id)
+            
+            # 파티 카드 업데이트
+            if party_info.get("party_card_message_id"):
+                await self.update_party_card(party_info)
+            
             # 채널 업데이트 0.5초 대기
             await asyncio.sleep(0.5)
             # 채널 객체를 다시 가져와 정확한 멤버 수를 확인
