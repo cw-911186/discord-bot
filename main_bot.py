@@ -14,7 +14,7 @@ logging.basicConfig(
 
 # ----------------- 보안 설정 -----------------
 # 허용된 서버 ID만 명시 (본인 서버 ID로 변경하세요)
-ALLOWED_GUILDS = [1418458446532972546] #허용된 서버 ID(안재현의 서버)
+ALLOWED_GUILDS = [int(os.getenv('ALLOWED_GUILD_ID', '0'))]  # 실제 서버 ID로 교체 필요
 
 # ----------------- 봇 설정 -----------------
 # 환경변수에서 봇 토큰 가져오기
@@ -99,7 +99,7 @@ if __name__ == '__main__':
         logging.error("❌ DISCORD_BOT_TOKEN 환경변수가 설정되지 않았습니다!")
         exit(1)
     
-    if not ALLOWED_GUILDS or ALLOWED_GUILDS == [1418458446532972546]:
+    if not ALLOWED_GUILDS or ALLOWED_GUILDS == [YOUR_SERVER_ID_HERE]:
         logging.error("❌ ALLOWED_GUILDS에 실제 서버 ID를 설정해주세요!")
         exit(1)
     
