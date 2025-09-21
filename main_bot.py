@@ -12,6 +12,10 @@ logging.basicConfig(
     ]
 )
 
+# ----------------- 보안 설정 -----------------
+# 허용된 서버 ID만 명시 (본인 서버 ID로 변경하세요)
+ALLOWED_GUILDS = [1418458446532972546] #허용된 서버 ID(안재현의 서버)
+
 # ----------------- 봇 설정 -----------------
 # 환경변수에서 봇 토큰 가져오기
 BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
@@ -50,7 +54,15 @@ class MyBot(commands.Bot):
     async def on_ready(self):
         logging.info(f"{self.user}으로 로그인 성공!")
         logging.info(f"봇 ID: {self.user.id}")
+        logging.info(f"허용된 서버 수: {len(ALLOWED_GUILDS)}")
         logging.info("-" * 20)
+        
+        # 현재 참여 중인 서버 검사
+        for guild in self.guilds:
+            if guild.id not in ALLOWED_GUILDS:
+                logging.warning(f"⚠️ 허용되지 않은 서버 발견: {guild.name} (ID: {guild.id})")
+                await guild.leave()
+                logging.info(f"🚪 서버에서 자동 탈퇴: {guild.name}")
         
         # 채널 ID들을 봇 객체에 등록
         self.welcome_channel_id = WELCOME_CHANNEL_ID
@@ -59,8 +71,27 @@ class MyBot(commands.Bot):
         self.party_text_channel_id = PARTY_TEXT_CHANNEL_ID
         self.party_trigger_channel_id = PARTY_TRIGGER_CHANNEL_ID
 
+    async def on_guild_join(self, guild):
+        """새 서버에 추가되었을 때 허용 여부 확인"""
+        if guild.id not in ALLOWED_GUILDS:
+            logging.warning(f"🚫 허용되지 않은 서버 초대 거부: {guild.name} (ID: {guild.id})")
+            await guild.leave()
+            logging.info(f"🚪 서버에서 즉시 탈퇴: {guild.name}")
+        else:
+            logging.info(f"✅ 허용된 서버에 참여: {guild.name} (ID: {guild.id})")
+
     async def on_error(self, event, *args, **kwargs):
         logging.error(f'이벤트 {event}에서 오류 발생', exc_info=True)
+
+    async def on_command_error(self, ctx, error):
+        """명령어 오류 처리"""
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send("❌ 이 명령어를 사용할 권한이 없습니다.")
+        elif isinstance(error, commands.CommandNotFound):
+            # 존재하지 않는 명령어는 무시
+            pass
+        else:
+            logging.error(f"명령어 오류: {error}")
 
 # ----------------- 봇 실행 -----------------
 if __name__ == '__main__':
@@ -68,7 +99,11 @@ if __name__ == '__main__':
         logging.error("❌ DISCORD_BOT_TOKEN 환경변수가 설정되지 않았습니다!")
         exit(1)
     
-    # 봇 실행 (keep_alive 제거됨)
+    if not ALLOWED_GUILDS or ALLOWED_GUILDS == [YOUR_SERVER_ID_HERE]:
+        logging.error("❌ ALLOWED_GUILDS에 실제 서버 ID를 설정해주세요!")
+        exit(1)
+    
+    # 봇 실행
     bot = MyBot()
     try:
         bot.run(BOT_TOKEN)
