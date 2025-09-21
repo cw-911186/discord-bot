@@ -55,9 +55,11 @@ class LOLRanking(commands.Cog):
         # 캐시된 랭킹 데이터 저장
         self.cached_ranking_data = []
         
-        # 일일 업데이트 스케줄러 시작
-        self.data_collection.start()  # 데이터 수집 (새벽 2:30)
-        self.ranking_update.start()   # 순위표 업데이트 (새벽 3:00)
+        # 최대 처리 인원 제한 (30분 동안 처리 가능한 안전한 수)
+        self.max_users_per_update = 100
+        
+        # 일일 업데이트 스케줄러 시작 (태스크 정의 후에 시작)
+        # 태스크는 클래스 정의 완료 후 자동으로 시작됨
 
     def cog_unload(self):
         self.data_collection.cancel()
@@ -355,4 +357,8 @@ class LOLRanking(commands.Cog):
         await ctx.send("✅ 전체 랭킹 업데이트가 완료되었습니다!")
 
 async def setup(bot):
-    await bot.add_cog(LOLRanking(bot))
+    cog = LOLRanking(bot)
+    await bot.add_cog(cog)
+    # Cog 로드 완료 후 태스크 시작
+    cog.data_collection.start()
+    cog.ranking_update.start()
