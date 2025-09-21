@@ -99,7 +99,7 @@ if __name__ == '__main__':
         logging.error("❌ DISCORD_BOT_TOKEN 환경변수가 설정되지 않았습니다!")
         exit(1)
     
-    if not ALLOWED_GUILDS or ALLOWED_GUILDS == [YOUR_SERVER_ID_HERE]:
+    if not ALLOWED_GUILDS or ALLOWED_GUILDS == [1418458446532972546]:
         logging.error("❌ ALLOWED_GUILDS에 실제 서버 ID를 설정해주세요!")
         exit(1)
     
