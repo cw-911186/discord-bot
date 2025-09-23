@@ -2,6 +2,12 @@ import discord
 from discord.ext import commands
 from discord import ui, app_commands
 
+# 서버 소유자 전용 데코레이터
+def owner_only():
+    async def predicate(interaction):
+        return interaction.user.id == interaction.guild.owner_id
+    return app_commands.check(predicate)
+
 # 역할 목록 (서버에 생성된 역할 이름과 정확히 일치해야 합니다)
 PLAY_TIME_ROLES = ["Morning", "Afternoon", "Night", "Dawn", "All-TIME"]
 
@@ -37,7 +43,6 @@ class RoleSelectView(ui.View):
         except Exception as e:
             await interaction.response.send_message(f"⚠️ 오류가 발생했습니다: {e}", ephemeral=True)
 
-
     # 각 역할에 대한 버튼 생성
     @ui.button(label="Morning", style=discord.ButtonStyle.secondary, custom_id="role_morning")
     async def morning_button(self, interaction: discord.Interaction, button: ui.Button):
@@ -59,17 +64,15 @@ class RoleSelectView(ui.View):
     async def all_time_button(self, interaction: discord.Interaction, button: ui.Button):
         await self.role_callback(interaction, "All-TIME")
 
-
 # Cog 클래스 정의
 class RoleManager(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.bot.add_view(RoleSelectView())
 
-
-    # 역할 변경 버튼 설치 명령어
-    @app_commands.command(name="역할변경_버튼설치", description="'역할-변경' 채널에 안내 메시지와 버튼을 설치합니다.")
-    @app_commands.checks.has_permissions(administrator=True)
+    # 역할 변경 버튼 설치 명령어 - 서버 소유자 전용
+    @app_commands.command(name="역할변경_버튼설치", description="'역할-변경' 채널에 안내 메시지와 버튼을 설치합니다. (서버 소유자 전용)")
+    @owner_only()
     async def setup_role_channel(self, interaction: discord.Interaction):
         if interaction.channel.id != self.bot.role_channel_id:
             await interaction.response.send_message(f"이 명령어는 <#{self.bot.role_channel_id}> 채널에서만 사용할 수 있습니다.", ephemeral=True)

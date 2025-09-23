@@ -2,6 +2,12 @@ import discord
 from discord.ext import commands
 from discord import ui, app_commands
 
+# 서버 소유자 전용 데코레이터
+def owner_only():
+    async def predicate(interaction):
+        return interaction.user.id == interaction.guild.owner_id
+    return app_commands.check(predicate)
+
 # 닉네임 변경 모달 (팝업 창)
 class NicknameModal(ui.Modal, title="닉네임 변경"):
     custom_nickname = ui.TextInput(label="별명", placeholder="예: 홍길동", required=True)
@@ -32,13 +38,11 @@ class NicknameManager(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         # 봇이 재시작되어도 버튼이 동작하도록 View를 추가합니다.
-        # Cog에서는 setup_hook 대신 __init__에서 처리하는 것이 일반적입니다.
         self.bot.add_view(NicknameButtonView())
 
-
-    # 닉네임 변경 버튼 설치 명령어
-    @app_commands.command(name="닉네임변경_버튼설치", description="'닉네임-변경' 채널에 안내 메시지와 버튼을 설치합니다.")
-    @app_commands.checks.has_permissions(administrator=True)
+    # 닉네임 변경 버튼 설치 명령어 - 서버 소유자 전용
+    @app_commands.command(name="닉네임변경_버튼설치", description="'닉네임-변경' 채널에 안내 메시지와 버튼을 설치합니다. (서버 소유자 전용)")
+    @owner_only()
     async def setup_nickname_channel(self, interaction: discord.Interaction):
         if interaction.channel.id != self.bot.nickname_channel_id:
             await interaction.response.send_message(f"이 명령어는 <#{self.bot.nickname_channel_id}> 채널에서만 사용할 수 있습니다.", ephemeral=True)

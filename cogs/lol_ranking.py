@@ -7,6 +7,12 @@ from datetime import datetime, time
 import json
 from collections import deque
 
+# 서버 소유자 전용 데코레이터
+def owner_only():
+    async def predicate(ctx):
+        return ctx.author.id == ctx.guild.owner_id
+    return commands.check(predicate)
+
 class RateLimiter:
     def __init__(self, max_requests=20, time_window=1):
         self.max_requests = max_requests
@@ -17,19 +23,16 @@ class RateLimiter:
         """필요시 대기하여 Rate Limit 준수"""
         now = asyncio.get_event_loop().time()
         
-        # 시간 창 밖의 요청들 제거
         while self.requests and self.requests[0] <= now - self.time_window:
             self.requests.popleft()
         
-        # 요청 한도에 도달했으면 대기
         if len(self.requests) >= self.max_requests:
             sleep_time = self.requests[0] + self.time_window - now + 0.1
             if sleep_time > 0:
                 print(f"Rate limit 대기: {sleep_time:.1f}초")
                 await asyncio.sleep(sleep_time)
-                return await self.wait_if_needed()  # 재귀적으로 다시 확인
+                return await self.wait_if_needed()
         
-        # 현재 요청 시간 기록
         self.requests.append(now)
 
 class LOLRanking(commands.Cog):
@@ -38,24 +41,18 @@ class LOLRanking(commands.Cog):
         self.riot_api_key = os.getenv('RIOT_API_KEY')
         self.base_url = "https://kr.api.riotgames.com"
         
-        # Rate Limiter 설정 (보수적으로)
-        self.rate_limiter = RateLimiter(max_requests=18, time_window=1)  # 20보다 작게
+        self.rate_limiter = RateLimiter(max_requests=18, time_window=1)
         
-        # 채널 ID 설정
         self.solo_rank_channel_id = int(os.getenv('SOLO_RANK_CHANNEL_ID', '0'))
         self.flex_rank_channel_id = int(os.getenv('FLEX_RANK_CHANNEL_ID', '0'))
         
-        # 티어 순위 매핑
         self.tier_priority = {
             'CHALLENGER': 9, 'GRANDMASTER': 8, 'MASTER': 7,
             'DIAMOND': 6, 'EMERALD': 5, 'PLATINUM': 4,
             'GOLD': 3, 'SILVER': 2, 'BRONZE': 1, 'IRON': 0
         }
         
-        # 캐시된 랭킹 데이터 저장
         self.cached_ranking_data = []
-        
-        # 최대 처리 인원 제한 (30분 동안 처리 가능한 안전한 수)
         self.max_users_per_update = 100
 
     def cog_unload(self):
@@ -67,20 +64,18 @@ class LOLRanking(commands.Cog):
 
     @staticmethod
     def extract_lol_nickname(display_name: str) -> tuple:
-        """닉네임에서 롤 닉네임과 태그 추출: '별명/출생년도/롤닉네임#태그' -> ('롤닉네임', '태그')"""
+        """닉네임에서 롤 닉네임과 태그 추출"""
         try:
             parts = display_name.split('/')
             if len(parts) >= 3:
                 lol_full = parts[2].strip()
                 
-                # '#' 태그가 있는 경우만 처리
                 if '#' in lol_full:
                     name_parts = lol_full.split('#')
                     if len(name_parts) == 2:
                         lol_name = name_parts[0].strip()
-                        tag = name_parts[1].strip().upper()  # 태그는 대문자로 통일
+                        tag = name_parts[1].strip().upper()
                         
-                        # 빈 문자열 체크
                         if lol_name and tag:
                             return (lol_name, tag)
                 
@@ -95,11 +90,11 @@ class LOLRanking(commands.Cog):
         try:
             response = requests.get(url, headers=headers, timeout=10)
             
-            if response.status_code == 429:  # Rate Limited
+            if response.status_code == 429:
                 retry_after = int(response.headers.get('Retry-After', 1))
                 print(f"Rate limit 도달, {retry_after}초 대기")
                 await asyncio.sleep(retry_after)
-                return await self.make_api_request(url, headers)  # 재시도
+                return await self.make_api_request(url, headers)
             
             if response.status_code == 200:
                 return response.json()
@@ -166,26 +161,23 @@ class LOLRanking(commands.Cog):
         return ranks
 
     async def get_user_rank_data(self, member: discord.Member) -> dict:
-        """멤버의 랭크 데이터 가져오기 (Rate Limited)"""
+        """멤버의 랭크 데이터 가져오기"""
         lol_name, tag = self.extract_lol_nickname(member.display_name)
         if not lol_name or not tag:
             return None
             
         print(f"처리 중: {member.display_name} ({lol_name}#{tag})")
         
-        # 1단계: PUUID 가져오기
         puuid = await self.get_riot_puuid(lol_name, tag)
         if not puuid:
             print(f"  PUUID 조회 실패: {lol_name}#{tag}")
             return None
             
-        # 2단계: 소환사 정보 가져오기
         summoner = await self.get_summoner_by_puuid(puuid)
         if not summoner:
             print(f"  소환사 정보 조회 실패: {lol_name}#{tag}")
             return None
             
-        # 3단계: 랭크 정보 가져오기
         ranks = await self.get_rank_info(summoner['id'])
         
         print(f"  완료: {lol_name}#{tag}")
@@ -256,7 +248,6 @@ class LOLRanking(commands.Cog):
 
     async def collect_ranking_data(self):
         """랭킹 데이터 수집"""
-        # ALLOWED_GUILDS를 main_bot.py에서 가져오기
         from main_bot import ALLOWED_GUILDS
         
         guild = self.bot.get_guild(ALLOWED_GUILDS[0]) if ALLOWED_GUILDS else None
@@ -355,25 +346,25 @@ class LOLRanking(commands.Cog):
         await self.bot.wait_until_ready()
 
     @commands.command(name="랭킹수집")
-    @commands.has_permissions(administrator=True)
+    @owner_only()
     async def manual_collect(self, ctx):
-        """수동으로 랭킹 데이터 수집"""
+        """수동으로 랭킹 데이터 수집 (서버 소유자 전용)"""
         await ctx.send("📄 랭킹 데이터 수집을 시작합니다... (최대 30분 소요)")
         await self.collect_ranking_data()
         await ctx.send("✅ 랭킹 데이터 수집이 완료되었습니다!")
 
     @commands.command(name="랭킹발행")
-    @commands.has_permissions(administrator=True)
+    @owner_only()
     async def manual_publish(self, ctx):
-        """수동으로 순위표 발행"""
+        """수동으로 순위표 발행 (서버 소유자 전용)"""
         await ctx.send("📊 순위표를 발행합니다...")
         await self.publish_rankings()
         await ctx.send("✅ 순위표 발행이 완료되었습니다!")
         
     @commands.command(name="랭킹업데이트")
-    @commands.has_permissions(administrator=True)
+    @owner_only()
     async def manual_full_update(self, ctx):
-        """수동으로 전체 랭킹 업데이트 (수집 + 발행)"""
+        """수동으로 전체 랭킹 업데이트 (서버 소유자 전용)"""
         await ctx.send("📄 전체 랭킹 업데이트를 시작합니다...")
         await self.collect_ranking_data()
         await self.publish_rankings()

@@ -5,12 +5,18 @@ import asyncio
 
 # 역할 목록
 PLAY_TIME_ROLES = ["Morning", "Afternoon", "Night", "Dawn", "All-TIME"]
-VERIFIED_ROLE_NAME = "인증완료"  # 온보딩 완료 시 부여할 역할
+VERIFIED_ROLE_NAME = "인증완료"
+
+# 서버 소유자 전용 데코레이터
+def owner_only():
+    async def predicate(ctx):
+        return ctx.author.id == ctx.guild.owner_id
+    return commands.check(predicate)
 
 # --- 2단계: 역할 선택 View (개인 스레드용) ---
 class PrivateRoleSelectView(ui.View):
     def __init__(self, thread, member):
-        super().__init__(timeout=300.0)  # 5분 타임아웃
+        super().__init__(timeout=300.0)
         self.thread = thread
         self.member = member
 
@@ -55,7 +61,6 @@ class PrivateRoleSelectView(ui.View):
                 color=discord.Color.green()
             )
             
-            # 모든 버튼 비활성화
             for item in self.children:
                 item.disabled = True
                 
@@ -128,10 +133,8 @@ class PrivateNicknameModal(ui.Modal, title="1단계: 닉네임 설정"):
         try:
             await self.member.edit(nick=new_nickname)
             
-            # 성공 메시지와 함께 2단계로 이동
             await interaction.response.send_message(f"✅ 닉네임이 '{new_nickname}'으로 설정되었습니다!", ephemeral=True)
             
-            # 2단계 역할 선택 메시지
             role_embed = discord.Embed(
                 title="➡️ 2단계: 활동 시간 역할 선택",
                 description=f"주로 활동하시는 시간대를 선택하여 역할을 받아주세요!\n\n"
@@ -148,7 +151,7 @@ class PrivateNicknameModal(ui.Modal, title="1단계: 닉네임 설정"):
 # --- 1단계: 닉네임 변경 View (개인 스레드용) ---
 class PrivateOnboardingView(ui.View):
     def __init__(self, thread, member):
-        super().__init__(timeout=300.0)  # 5분 타임아웃
+        super().__init__(timeout=300.0)
         self.thread = thread
         self.member = member
 
@@ -177,23 +180,19 @@ class ImprovedOnboardingManager(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         """멤버 입장 시 개인 온보딩 스레드 생성"""
-        # 환영 채널에서 개인 스레드 생성
         welcome_channel = self.bot.get_channel(self.bot.welcome_channel_id)
         if not welcome_channel:
             return
 
         try:
-            # 개인 전용 스레드 생성
             thread = await welcome_channel.create_thread(
                 name=f"{member.display_name}님의 온보딩",
                 type=discord.ChannelType.private_thread,
-                auto_archive_duration=60  # 1시간 후 자동 아카이브
+                auto_archive_duration=60
             )
             
-            # 멤버를 스레드에 추가
             await thread.add_user(member)
             
-            # 온보딩 안내 메시지
             embed = discord.Embed(
                 title=f"🎉 {member.guild.name} 서버에 오신 것을 환영합니다!",
                 description=f"{member.mention}님, 안녕하세요!\n\n"
@@ -211,7 +210,6 @@ class ImprovedOnboardingManager(commands.Cog):
             
         except Exception as e:
             print(f"온보딩 스레드 생성 실패: {e}")
-            # 스레드 생성 실패 시 기존 방식으로 폴백
             embed = discord.Embed(
                 title="⚠️ 온보딩 설정 필요",
                 description=f"{member.mention}님, 서버 활동을 위해 닉네임 설정과 역할 선택이 필요합니다.\n"
@@ -221,9 +219,9 @@ class ImprovedOnboardingManager(commands.Cog):
             await welcome_channel.send(embed=embed, delete_after=30)
 
     @commands.command(name="역할생성")
-    @commands.has_permissions(administrator=True)
+    @owner_only()
     async def create_roles(self, ctx):
-        """필요한 역할들을 자동으로 생성하는 관리자 명령어"""
+        """필요한 역할들을 자동으로 생성 (서버 소유자 전용)"""
         guild = ctx.guild
         roles_to_create = PLAY_TIME_ROLES + [VERIFIED_ROLE_NAME]
         created_roles = []
@@ -232,9 +230,23 @@ class ImprovedOnboardingManager(commands.Cog):
             existing_role = discord.utils.get(guild.roles, name=role_name)
             if not existing_role:
                 try:
-                    # 인증완료 역할은 특별한 색상으로
-                    color = discord.Color.green() if role_name == VERIFIED_ROLE_NAME else discord.Color.default()
-                    new_role = await guild.create_role(name=role_name, color=color)
+                    # 인증완료 역할은 일반 멤버 권한으로 생성
+                    permissions = discord.Permissions.none()
+                    permissions.update(
+                        view_channel=True,
+                        send_messages=True,
+                        read_message_history=True,
+                        connect=True,
+                        speak=True,
+                        use_voice_activation=True
+                    )
+                    
+                    color = discord.Color.light_grey() if role_name == VERIFIED_ROLE_NAME else discord.Color.default()
+                    new_role = await guild.create_role(
+                        name=role_name, 
+                        color=color,
+                        permissions=permissions if role_name == VERIFIED_ROLE_NAME else discord.Permissions.none()
+                    )
                     created_roles.append(role_name)
                 except Exception as e:
                     await ctx.send(f"'{role_name}' 역할 생성 실패: {e}")
@@ -245,38 +257,78 @@ class ImprovedOnboardingManager(commands.Cog):
             await ctx.send("모든 필요한 역할이 이미 존재합니다.")
 
     @commands.command(name="권한설정")
-    @commands.has_permissions(administrator=True)
+    @owner_only()
     async def setup_permissions(self, ctx):
-        """채널 권한을 설정하는 관리자 명령어"""
+        """채널 권한을 설정 (서버 소유자 전용)"""
         guild = ctx.guild
         verified_role = discord.utils.get(guild.roles, name=VERIFIED_ROLE_NAME)
         everyone_role = guild.default_role
         
         if not verified_role:
-            await ctx.send(f"'{VERIFIED_ROLE_NAME}' 역할이 존재하지 않습니다. `/역할생성` 명령어를 먼저 실행하세요.")
+            await ctx.send(f"'{VERIFIED_ROLE_NAME}' 역할이 존재하지 않습니다. `!역할생성` 명령어를 먼저 실행하세요.")
             return
         
         updated_channels = []
         
-        # 모든 텍스트/음성 채널에 대해 권한 설정
+        # 일반 채널들에 대해 권한 설정 (관리자 전용 채널 제외)
         for channel in guild.channels:
             if isinstance(channel, (discord.TextChannel, discord.VoiceChannel)):
                 try:
-                    # 환영 채널은 제외
-                    if channel.id == self.bot.welcome_channel_id:
+                    # 환영 채널과 관리자 전용 채널은 제외
+                    if (channel.id == self.bot.welcome_channel_id or 
+                        "관리" in channel.name.lower() or 
+                        "admin" in channel.name.lower() or
+                        channel.overwrites_for(guild.owner).administrator):
                         continue
                     
                     # @everyone은 채널 보기 불가
                     await channel.set_permissions(everyone_role, view_channel=False)
-                    # 인증완료 역할은 모든 권한
-                    await channel.set_permissions(verified_role, view_channel=True, send_messages=True, connect=True)
+                    # 인증완료 역할은 기본 권한만
+                    await channel.set_permissions(verified_role, 
+                                                view_channel=True, 
+                                                send_messages=True, 
+                                                read_message_history=True,
+                                                connect=True if isinstance(channel, discord.VoiceChannel) else None,
+                                                speak=True if isinstance(channel, discord.VoiceChannel) else None)
                     updated_channels.append(channel.name)
                     
                 except Exception as e:
                     await ctx.send(f"'{channel.name}' 채널 권한 설정 실패: {e}")
         
         await ctx.send(f"✅ {len(updated_channels)}개 채널의 권한이 설정되었습니다.\n"
-                       f"이제 '{VERIFIED_ROLE_NAME}' 역할이 있는 사용자만 채널에 접근할 수 있습니다.")
+                       f"'{VERIFIED_ROLE_NAME}' 역할로 일반 채널 접근이 가능합니다.")
+
+    @commands.command(name="권한초기화")
+    @owner_only()
+    async def reset_verified_role_permissions(self, ctx):
+        """인증완료 역할의 권한을 안전하게 초기화 (서버 소유자 전용)"""
+        guild = ctx.guild
+        verified_role = discord.utils.get(guild.roles, name=VERIFIED_ROLE_NAME)
+        
+        if not verified_role:
+            await ctx.send(f"'{VERIFIED_ROLE_NAME}' 역할이 존재하지 않습니다.")
+            return
+        
+        try:
+            # 기본적인 일반 멤버 권한만 부여
+            basic_permissions = discord.Permissions.none()
+            basic_permissions.update(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                connect=True,
+                speak=True,
+                use_voice_activation=True,
+                add_reactions=True,
+                use_external_emojis=True,
+                change_nickname=True
+            )
+            
+            await verified_role.edit(permissions=basic_permissions)
+            await ctx.send(f"✅ '{VERIFIED_ROLE_NAME}' 역할의 권한이 일반 멤버 수준으로 초기화되었습니다.")
+            
+        except Exception as e:
+            await ctx.send(f"권한 초기화 실패: {e}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ImprovedOnboardingManager(bot))
