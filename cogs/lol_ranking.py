@@ -57,13 +57,13 @@ class LOLRanking(commands.Cog):
         
         # 최대 처리 인원 제한 (30분 동안 처리 가능한 안전한 수)
         self.max_users_per_update = 100
-        
-        # 일일 업데이트 스케줄러 시작 (태스크 정의 후에 시작)
-        # 태스크는 클래스 정의 완료 후 자동으로 시작됨
 
     def cog_unload(self):
-        self.data_collection.cancel()
-        self.ranking_update.cancel()
+        """Cog 언로드 시 태스크 정리"""
+        if hasattr(self, 'data_collection'):
+            self.data_collection.cancel()
+        if hasattr(self, 'ranking_update'):
+            self.ranking_update.cancel()
 
     @staticmethod
     def extract_lol_nickname(display_name: str) -> tuple:
@@ -254,13 +254,17 @@ class LOLRanking(commands.Cog):
         
         return embed
 
-    async def update_rankings(self):
-        """개선된 랭킹 업데이트"""
-        guild = self.bot.get_guild(ALLOWED_GUILDS[0])
+    async def collect_ranking_data(self):
+        """랭킹 데이터 수집"""
+        # ALLOWED_GUILDS를 main_bot.py에서 가져오기
+        from main_bot import ALLOWED_GUILDS
+        
+        guild = self.bot.get_guild(ALLOWED_GUILDS[0]) if ALLOWED_GUILDS else None
         if not guild:
+            print("길드를 찾을 수 없습니다.")
             return
             
-        print(f"랭킹 업데이트 시작... (최대 {self.max_users_per_update}명)")
+        print(f"랭킹 데이터 수집 시작... (최대 {self.max_users_per_update}명)")
         
         # 롤 닉네임이 있는 멤버만 필터링
         eligible_members = []
@@ -288,13 +292,23 @@ class LOLRanking(commands.Cog):
                 print(f"오류 발생 ({member.display_name}): {e}")
                 continue
         
+        # 데이터 캐싱
+        self.cached_ranking_data = all_data
+        print(f"데이터 수집 완료: {len(all_data)}명")
+
+    async def publish_rankings(self):
+        """캐시된 데이터로 순위표 발행"""
+        if not self.cached_ranking_data:
+            print("캐시된 랭킹 데이터가 없습니다.")
+            return
+        
         # 솔로랭크 순위
-        solo_ranking = sorted([p for p in all_data if 'solo' in p['ranks']], 
+        solo_ranking = sorted([p for p in self.cached_ranking_data if 'solo' in p['ranks']], 
                             key=lambda x: self.calculate_rank_score(x['ranks']['solo']), 
                             reverse=True)
         
         # 자유랭크 순위
-        flex_ranking = sorted([p for p in all_data if 'flex' in p['ranks']], 
+        flex_ranking = sorted([p for p in self.cached_ranking_data if 'flex' in p['ranks']], 
                             key=lambda x: self.calculate_rank_score(x['ranks']['flex']), 
                             reverse=True)
         
@@ -302,7 +316,7 @@ class LOLRanking(commands.Cog):
         await self.update_ranking_channel(self.solo_rank_channel_id, solo_ranking, 'solo')
         await self.update_ranking_channel(self.flex_rank_channel_id, flex_ranking, 'flex')
         
-        print(f"업데이트 완료: 솔로 {len(solo_ranking)}명, 자유 {len(flex_ranking)}명")
+        print(f"순위표 발행 완료: 솔로 {len(solo_ranking)}명, 자유 {len(flex_ranking)}명")
 
     async def update_ranking_channel(self, channel_id: int, ranking_data: list, queue_type: str):
         """순위표 채널 업데이트"""
@@ -322,20 +336,29 @@ class LOLRanking(commands.Cog):
         embed = self.create_ranking_embed(ranking_data, queue_type)
         await channel.send(embed=embed)
 
-    @tasks.loop(time=time(hour=0, minute=0))
-    async def daily_update(self):
-        """일일 자동 업데이트"""
-        await self.update_rankings()
+    @tasks.loop(time=time(hour=2, minute=30))  # 새벽 2:30 데이터 수집
+    async def data_collection(self):
+        """일일 데이터 수집"""
+        await self.collect_ranking_data()
 
-    @daily_update.before_loop
-    async def before_daily_update(self):
+    @tasks.loop(time=time(hour=3, minute=0))   # 새벽 3:00 순위표 발행
+    async def ranking_update(self):
+        """일일 순위표 발행"""
+        await self.publish_rankings()
+
+    @data_collection.before_loop
+    async def before_data_collection(self):
+        await self.bot.wait_until_ready()
+
+    @ranking_update.before_loop
+    async def before_ranking_update(self):
         await self.bot.wait_until_ready()
 
     @commands.command(name="랭킹수집")
     @commands.has_permissions(administrator=True)
     async def manual_collect(self, ctx):
         """수동으로 랭킹 데이터 수집"""
-        await ctx.send("🔄 랭킹 데이터 수집을 시작합니다... (최대 30분 소요)")
+        await ctx.send("📄 랭킹 데이터 수집을 시작합니다... (최대 30분 소요)")
         await self.collect_ranking_data()
         await ctx.send("✅ 랭킹 데이터 수집이 완료되었습니다!")
 
@@ -351,7 +374,7 @@ class LOLRanking(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def manual_full_update(self, ctx):
         """수동으로 전체 랭킹 업데이트 (수집 + 발행)"""
-        await ctx.send("🔄 전체 랭킹 업데이트를 시작합니다...")
+        await ctx.send("📄 전체 랭킹 업데이트를 시작합니다...")
         await self.collect_ranking_data()
         await self.publish_rankings()
         await ctx.send("✅ 전체 랭킹 업데이트가 완료되었습니다!")
