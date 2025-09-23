@@ -26,7 +26,8 @@ NICKNAME_CHANNEL_ID = int(os.getenv('NICKNAME_CHANNEL_ID', '1418458447246262275'
 ROLE_CHANNEL_ID = int(os.getenv('ROLE_CHANNEL_ID', '1418630139876737066'))
 PARTY_TEXT_CHANNEL_ID = int(os.getenv('PARTY_TEXT_CHANNEL_ID', '1419014874645659708'))
 PARTY_TRIGGER_CHANNEL_ID = int(os.getenv('PARTY_TRIGGER_CHANNEL_ID', '1419015107576463380'))
-
+# 환경변수에 추가 (Railway Variables)
+VERIFIED_ROLE_NAME = "인증완료"
 # ----------------- 봇 클래스 정의 -----------------
 class MyBot(commands.Bot):
     def __init__(self):
