@@ -116,7 +116,11 @@ class PrivateRoleSelectView(ui.View):
 class PrivateNicknameModal(ui.Modal, title="1단계: 닉네임 설정"):
     custom_nickname = ui.TextInput(label="별명", placeholder="예: 홍길동", required=True)
     birth_year = ui.TextInput(label="출생년도 뒷 2자리", placeholder="예: 99", min_length=2, max_length=2, required=True)
-    lol_nickname = ui.TextInput(label="롤 닉네임", placeholder="예: Hide on bush#KR1", required=True)
+    lol_nickname = ui.TextInput(
+        label="롤 닉네임 [#태그필수!]", 
+        placeholder="예: Hide on bush#KR1 (반드시 #태그 포함!)", 
+        required=True
+    )
 
     def __init__(self, thread, member):
         super().__init__()
@@ -126,6 +130,17 @@ class PrivateNicknameModal(ui.Modal, title="1단계: 닉네임 설정"):
     async def on_submit(self, interaction: discord.Interaction):
         if interaction.user.id != self.member.id:
             await interaction.response.send_message("본인의 온보딩만 진행할 수 있습니다.", ephemeral=True)
+            return
+
+        # 태그 검증 추가
+        if '#' not in self.lol_nickname.value:
+            await interaction.response.send_message(
+                "❌ **롤 닉네임에 #태그가 누락되었습니다!**\n\n"
+                "올바른 형식: `닉네임#태그`\n"
+                "예시: `Hide on bush#KR1`\n\n"
+                "다시 버튼을 눌러 정확하게 입력해주세요.", 
+                ephemeral=True
+            )
             return
 
         new_nickname = f"{self.custom_nickname.value}/{self.birth_year.value}/{self.lol_nickname.value}"
@@ -145,8 +160,7 @@ class PrivateNicknameModal(ui.Modal, title="1단계: 닉네임 설정"):
             await self.thread.send(embed=role_embed, view=PrivateRoleSelectView(self.thread, self.member))
             
         except Exception as e:
-            await interaction.response.send_message(f"오류가 발생했습니다: {e}", ephemeral=True)
-
+            await int
 
 # --- 1단계: 닉네임 변경 View (개인 스레드용) ---
 class PrivateOnboardingView(ui.View):
@@ -196,11 +210,13 @@ class ImprovedOnboardingManager(commands.Cog):
             embed = discord.Embed(
                 title=f"🎉 {member.guild.name} 서버에 오신 것을 환영합니다!",
                 description=f"{member.mention}님, 안녕하세요!\n\n"
-                            f"이 스레드는 **당신만을 위한 개인 공간**입니다.\n"
-                            f"서버 활동을 위해 **2단계 설정**을 완료해주세요.\n\n"
-                            f"**⚠️ 중요:** 온보딩 완료 전까지는 다른 채널을 사용할 수 없습니다.\n\n"
-                            f"**➡️ 1단계: 닉네임 설정**\n"
-                            f"아래 버튼을 눌러 `별명/출생년도/롤닉네임` 형식으로 설정해주세요.",
+                        f"이 스레드는 **당신만을 위한 개인 공간**입니다.\n"
+                        f"서버 활동을 위해 **2단계 설정**을 완료해주세요.\n\n"
+                        f"**⚠️ 중요:** 온보딩 완료 전까지는 다른 채널을 사용할 수 없습니다.\n\n"
+                        f"**➡️ 1단계: 닉네임 설정**\n"
+                        f"형식: `별명/출생년도/롤닉네임#태그`\n"
+                        f"**🔥 주의: #태그를 반드시 포함하세요!**\n"
+                        f"예시: `홍길동/99/Hide on bush#KR1`",
                 color=discord.Color.blue()
             )
             embed.set_thumbnail(url=member.display_avatar.url)

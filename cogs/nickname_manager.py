@@ -12,9 +12,22 @@ def owner_only():
 class NicknameModal(ui.Modal, title="닉네임 변경"):
     custom_nickname = ui.TextInput(label="별명", placeholder="예: 홍길동", required=True)
     birth_year = ui.TextInput(label="출생년도 뒷 2자리", placeholder="예: 99", min_length=2, max_length=2, required=True)
-    lol_nickname = ui.TextInput(label="롤 닉네임", placeholder="예: Hide on bush#KR1", required=True)
+    lol_nickname = ui.TextInput(
+        label="롤 닉네임 [#태그필수!]", 
+        placeholder="예: Hide on bush#KR1 (태그 빼먹지 마세요!)", 
+        required=True
+    )
 
     async def on_submit(self, interaction: discord.Interaction):
+        # 태그 검증 추가
+        if '#' not in self.lol_nickname.value:
+            await interaction.response.send_message(
+                "❌ 롤 닉네임에 **#태그**가 누락되었습니다!\n"
+                "올바른 형식: `닉네임#태그` (예: Hide on bush#KR1)", 
+                ephemeral=True
+            )
+            return
+
         new_nickname = f"{self.custom_nickname.value}/{self.birth_year.value}/{self.lol_nickname.value}"
         try:
             await interaction.user.edit(nick=new_nickname)
@@ -51,8 +64,10 @@ class NicknameManager(commands.Cog):
         setup_embed = discord.Embed(
             title="📝 닉네임 변경 안내",
             description="서버 활동을 위해서는 닉네임 변경이 필요합니다.\n\n"
-                        "**닉네임 형식:** `별명 / 출생년도 / 롤 닉네임`\n\n"
-                        "아래의 **'닉네임 변경하기'** 버튼을 눌러 정보를 입력해주세요.",
+                "**닉네임 형식:** `별명 / 출생년도 / 롤 닉네임#태그`\n\n"
+                "⚠️ **중요**: 롤 닉네임 뒤에 **#태그**를 반드시 입력하세요!\n"
+                "예시: `홍길동/99/Hide on bush#KR1`\n\n"
+                "아래의 **'닉네임 변경하기'** 버튼을 눌러 정보를 입력해주세요.",
             color=discord.Color.green()
         )
         await interaction.channel.send(embed=setup_embed, view=NicknameButtonView())
