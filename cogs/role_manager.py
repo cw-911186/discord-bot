@@ -81,7 +81,13 @@ class RoleManager(commands.Cog):
         setup_embed = discord.Embed(
             title="🕰️ 활동 시간 역할 변경",
             description="주로 활동하는 시간대를 선택하거나 변경할 수 있습니다.\n\n"
-                        "역할을 변경하면 기존에 있던 시간대 역할은 사라지고 새로 선택한 역할이 부여됩니다.",
+                "**TIME ZONE 안내:**\n"
+                "🌅 **Morning**: 08:00 - 14:00\n"
+                "☀️ **Afternoon**: 14:00 - 19:00\n"
+                "🌙 **Night**: 19:00 - 02:00\n"
+                "🌌 **Dawn**: 02:00 - 08:00\n"
+                "⏰ **All-TIME**: 언제든지 활동 가능\n\n"
+                "역할을 변경하면 기존에 있던 시간대 역할은 사라지고 새로 선택한 역할이 부여됩니다.",
             color=discord.Color.orange()
         )
         await interaction.channel.send(embed=setup_embed, view=RoleSelectView())

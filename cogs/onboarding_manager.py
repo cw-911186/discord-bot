@@ -152,9 +152,15 @@ class PrivateNicknameModal(ui.Modal, title="1단계: 닉네임 설정"):
             
             role_embed = discord.Embed(
                 title="➡️ 2단계: 활동 시간 역할 선택",
-                description=f"주로 활동하시는 시간대를 선택하여 역할을 받아주세요!\n\n"
-                            f"이 역할은 다른 사람들과의 파티 시간 조율에 도움이 됩니다.",
-                color=discord.Color.gold()
+                description="주로 활동하시는 시간대를 선택하여 역할을 받아주세요!\n\n"
+                        "**TIME ZONE 안내:**\n"
+                        "🌅 **Morning**: 08:00 - 14:00 (오전~오후 초반)\n"
+                        "☀️ **Afternoon**: 14:00 - 19:00 (오후~저녁 초반)\n"
+                        "🌙 **Night**: 19:00 - 02:00 (저녁~새벽)\n"
+                        "🌌 **Dawn**: 02:00 - 08:00 (새벽~오전)\n"
+                        "⏰ **All-TIME**: 언제든지 활동 가능\n\n"
+                        "이 역할은 다른 사람들과의 파티 시간 조율에 도움이 됩니다.",
+            color=discord.Color.gold()
             )
             
             await self.thread.send(embed=role_embed, view=PrivateRoleSelectView(self.thread, self.member))
