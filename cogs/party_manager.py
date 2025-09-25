@@ -42,6 +42,18 @@ class PartyCardView(ui.View):
 
     async def handle_join(self, interaction: discord.Interaction, join_type: str):
         user = interaction.user
+        
+        # 인증완료 역할 확인
+        cog = self.bot.get_cog('PartyManager')
+        if not cog or not cog.has_verified_role(user):
+            await interaction.response.send_message(
+                "❌ **파티 참여 권한이 없습니다.**\n\n"
+                "파티에 참여하려면 먼저 온보딩 과정을 완료해야 합니다.\n"
+                "📍 #입장-온보딩 채널에서 닉네임 설정과 역할 선택을 완료해주세요.", 
+                ephemeral=True
+            )
+            return
+        
         if not user.voice or user.voice.channel.id != self.party_vc_id:
             await interaction.response.send_message("❗ 먼저 파티 음성 채널에 참여해야 합니다.", ephemeral=True)
             return
@@ -98,13 +110,82 @@ class PartyCardView(ui.View):
         await self.handle_join(interaction, 'spectator')
 
 
+# --- 자유 파티용 게임 입력 모달 ---
+class FreePartyGameModal(ui.Modal, title="게임 이름 입력"):
+    game_name = ui.TextInput(
+        label="플레이할 게임 이름을 입력하세요",
+        placeholder="예: 발로란트, 오버워치2, 피파24, 마인크래프트 등...",
+        required=True,
+        max_length=50
+    )
+
+    def __init__(self, bot, author, thread, selected_size):
+        super().__init__()
+        self.bot = bot
+        self.author = author
+        self.thread = thread
+        self.selected_size = selected_size
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        cog = self.bot.get_cog('PartyManager')
+        if not cog or not self.author.voice: 
+            return
+        
+        party_vc = self.author.voice.channel
+        
+        party_info = cog.active_parties.get(party_vc.id)
+        if not party_info: 
+            return
+            
+        party_info.update({
+            "game_mode": self.game_name.value,
+            "max_size": self.selected_size,
+        })
+        party_info["participants"].add(self.author.id)
+
+        # 짧은 이름 추출
+        short_name = cog.get_short_name(self.author.display_name)
+
+        # 채널 이름 변경 및 잠금 해제
+        await party_vc.edit(
+            name=f"{short_name}님의 파티",
+            user_limit=None
+        )
+
+        # 파티 카드 생성 (메인 채널에)
+        main_channel = self.bot.get_channel(party_info["main_channel_id"])
+        embed = discord.Embed(title=f"🎉 {short_name}님의 파티가 열렸습니다!", color=discord.Color.blue())
+        embed.add_field(name="🕹️ 게임", value=self.game_name.value, inline=False)
+        embed.add_field(name="📊 현재 인원", value=f"1 / {self.selected_size}", inline=False)
+        embed.add_field(name="👥 참가자 목록", value=short_name, inline=True)
+        embed.add_field(name="👀 관전자 목록", value="없음", inline=True)
+        embed.set_footer(text=f"음성 채널: {short_name}님의 파티")
+
+        party_card_view = PartyCardView(self.bot, party_vc.id)
+        party_card_msg = await main_channel.send(embed=embed, view=party_card_view)
+        party_info["party_card_message_id"] = party_card_msg.id
+        
+        # 성공 메시지를 스레드에 보냄
+        await interaction.followup.send("✅ 파티가 성공적으로 생성되었습니다! 메인 채널에서 파티 카드를 확인하세요.")
+        
+        # 스레드 자동 삭제 (5초 후)
+        await asyncio.sleep(5)
+        try:
+            await self.thread.delete()
+        except:
+            pass
+
+
 # --- 파티 설정 View (드롭다운, 생성 버튼) ---
 class PartySetupView(ui.View):
-    def __init__(self, bot, author, thread):
+    def __init__(self, bot, author, thread, is_free_party=False):
         super().__init__(timeout=300)
         self.bot = bot
         self.author = author
         self.thread = thread
+        self.is_free_party = is_free_party
         self.selected_mode = None
         self.selected_size = None
 
@@ -119,6 +200,11 @@ class PartySetupView(ui.View):
         ]
     )
     async def mode_select(self, interaction: discord.Interaction, select: ui.Select):
+        # 자유 파티에서는 이 드롭다운을 사용하지 않음
+        if self.is_free_party:
+            await interaction.response.send_message("자유 파티에서는 게임 모드를 직접 입력합니다.", ephemeral=True)
+            return
+            
         self.selected_mode = select.values[0]
         await interaction.response.send_message(f"🎮 게임 모드: **{self.selected_mode}** 선택됨", ephemeral=True)
 
@@ -141,7 +227,16 @@ class PartySetupView(ui.View):
         if interaction.user.id != self.author.id:
             return await interaction.response.send_message("❗ 파티 생성자만 버튼을 누를 수 있습니다.", ephemeral=True)
         
-        if not self.selected_mode or not self.selected_size:
+        if not self.selected_size:
+            return await interaction.response.send_message("❗ 인원 수를 먼저 선택해야 합니다.", ephemeral=True)
+
+        # 자유 파티인 경우 게임 입력 모달 표시
+        if self.is_free_party:
+            await interaction.response.send_modal(FreePartyGameModal(self.bot, self.author, self.thread, self.selected_size))
+            return
+
+        # 기존 롤 파티인 경우 기존 로직
+        if not self.selected_mode:
             return await interaction.response.send_message("❗ 게임 모드와 인원 수를 모두 선택해야 합니다.", ephemeral=True)
 
         await interaction.response.defer()
@@ -168,11 +263,11 @@ class PartySetupView(ui.View):
         # 채널 이름 변경 및 잠금 해제
         await party_vc.edit(
             name=f"{short_name}님의 파티",
-            user_limit=None  # 인원 제한 해제
+            user_limit=None
         )
 
         # 파티 카드 생성 (메인 채널에)
-        main_channel = self.bot.get_channel(self.bot.party_text_channel_id)
+        main_channel = self.bot.get_channel(party_info["main_channel_id"])
         embed = discord.Embed(title=f"🎉 {short_name}님의 파티가 열렸습니다!", color=discord.Color.blue())
         embed.add_field(name="🕹️ 게임 모드", value=self.selected_mode, inline=False)
         embed.add_field(name="📊 현재 인원", value=f"1 / {self.selected_size}", inline=False)
@@ -212,7 +307,7 @@ class PartyManager(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.active_parties = {}
-        self.setup_threads = {}  # 진행 중인 설정 스레드 추적
+        self.setup_threads = {}
         bot.add_view(PartyCardView(bot, 0))
 
     @staticmethod
@@ -221,14 +316,14 @@ class PartyManager(commands.Cog):
         try:
             return display_name.split('/')[0].strip()
         except:
-            return display_name # 형식에 맞지 않으면 전체 이름 반환
+            return display_name
 
     async def update_party_card(self, party_info):
         """파티 카드를 업데이트하는 헬퍼 함수"""
         if not party_info.get("party_card_message_id"):
             return
             
-        main_channel = self.bot.get_channel(self.bot.party_text_channel_id)
+        main_channel = self.bot.get_channel(party_info["main_channel_id"])
         try:
             msg = await main_channel.fetch_message(party_info["party_card_message_id"])
             embed = msg.embeds[0]
@@ -253,51 +348,93 @@ class PartyManager(commands.Cog):
         except:
             pass
 
+    def has_verified_role(self, member: discord.Member) -> bool:
+        """멤버가 인증완료 역할을 가지고 있는지 확인"""
+        VERIFIED_ROLE_NAME = "인증완료"
+        return any(role.name == VERIFIED_ROLE_NAME for role in member.roles)
+
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        trigger_channel_id = self.bot.party_trigger_channel_id
+        # 롤 파티 생성 채널
+        lol_trigger_channel_id = self.bot.party_trigger_channel_id
+        # 자유 파티 생성 채널 ID (환경변수나 봇 설정에 추가 필요)
+        free_trigger_channel_id = getattr(self.bot, 'free_party_trigger_channel_id', 0)
         
         # 파티 생성 채널에 입장한 경우
-        if after.channel and after.channel.id == trigger_channel_id:
+        if after.channel and after.channel.id in [lol_trigger_channel_id, free_trigger_channel_id]:
+            is_free_party = after.channel.id == free_trigger_channel_id
+            
+            # 인증완료 역할 확인
+            if not self.has_verified_role(member):
+                try:
+                    # 개인 DM 전송
+                    dm_embed = discord.Embed(
+                        title="❌ 파티 생성 권한 없음",
+                        description="파티를 생성하려면 먼저 **온보딩 과정**을 완료해야 합니다.\n\n"
+                                   "🔹 #입장-온보딩 채널에서 닉네임 설정과 역할 선택을 완료해주세요.\n"
+                                   "🔹 온보딩 완료 후 '인증완료' 역할을 받으면 파티 생성이 가능합니다.",
+                        color=discord.Color.red()
+                    )
+                    await member.send(embed=dm_embed)
+                except:
+                    # DM 전송 실패 시 채널에 임시 메시지
+                    welcome_channel = self.bot.get_channel(self.bot.welcome_channel_id)
+                    if welcome_channel:
+                        temp_msg = await welcome_channel.send(
+                            f"❌ {member.mention}님, 파티 생성을 위해서는 온보딩 과정을 먼저 완료해주세요!"
+                        )
+                        # 5초 후 메시지 삭제
+                        await asyncio.sleep(5)
+                        try:
+                            await temp_msg.delete()
+                        except:
+                            pass
+                
+                # 원래 채널로 이동 (가능한 경우)
+                if before.channel:
+                    await member.move_to(before.channel)
+                else:
+                    await member.move_to(None)  # 음성 채널에서 퇴장
+                return
+            
             # 이미 설정 중인 스레드가 있다면 무시
             if member.id in self.setup_threads:
-                await member.move_to(before.channel)  # 원래 채널로 되돌림
+                await member.move_to(before.channel)
                 return
                 
             category = after.channel.category
-            
-            # 짧은 이름 추출
             short_name = self.get_short_name(member.display_name)
             
             # 임시 음성 채널 생성 (1명 제한으로 잠금)
             temp_vc = await category.create_voice_channel(
                 name=f"{short_name}님의 파티설정 도우미",
-                user_limit=1  # 파티 생성자만 입장 가능
+                user_limit=1
             )
             await member.move_to(temp_vc)
 
             # 메인 텍스트 채널에서 비공개 스레드 생성
-            main_channel = self.bot.get_channel(self.bot.party_text_channel_id)
+            main_channel_id = self.bot.free_party_text_channel_id if is_free_party else self.bot.party_text_channel_id
+            main_channel = self.bot.get_channel(main_channel_id)
+            
             if main_channel:
                 try:
-                    # 비공개 스레드 생성
                     thread = await main_channel.create_thread(
                         name=f"{short_name}님의 파티-생성-도우미",
                         type=discord.ChannelType.private_thread,
-                        auto_archive_duration=60  # 1시간 후 자동 아카이브
+                        auto_archive_duration=60
                     )
                     
-                    # 파티 생성자를 스레드에 추가
                     await thread.add_user(member)
                     
                     # 설정 메시지 생성
+                    party_type = "자유 파티" if is_free_party else "롤 파티"
                     embed = discord.Embed(
-                        title="🎈 파티 생성 도우미", 
+                        title=f"🎈 {party_type} 생성 도우미", 
                         description=f"{member.mention}님, 파티 정보를 설정해주세요.\n\n"
                                    f"⚠️ 이 스레드는 당신만 볼 수 있는 비공개 공간입니다.",
                         color=discord.Color.gold()
                     )
-                    setup_view = PartySetupView(self.bot, member, thread)
+                    setup_view = PartySetupView(self.bot, member, thread, is_free_party)
                     setup_msg = await thread.send(embed=embed, view=setup_view)
 
                     # 추적 정보 저장
@@ -307,6 +444,7 @@ class PartyManager(commands.Cog):
                         "setup_message_id": setup_msg.id,
                         "thread_id": thread.id,
                         "party_card_message_id": None,
+                        "main_channel_id": main_channel_id,
                         "game_mode": None, 
                         "max_size": 0,
                         "participants": set(), 
@@ -314,7 +452,6 @@ class PartyManager(commands.Cog):
                     }
 
                 except Exception as e:
-                    # 스레드 생성 실패 시 대체 방안
                     await temp_vc.delete()
                     if member.voice:
                         await member.move_to(before.channel)
@@ -323,10 +460,51 @@ class PartyManager(commands.Cog):
         if after.channel and after.channel.id in self.active_parties:
             party_info = self.active_parties[after.channel.id]
             
-            # 이미 목록에 있는지 확인 (파티장 제외, 새로 입장한 멤버만)
+            # 인증완료 역할 확인 (파티장 제외)
+            if member.id != party_info['leader_id'] and not self.has_verified_role(member):
+                try:
+                    # 개인 DM 전송
+                    dm_embed = discord.Embed(
+                        title="❌ 파티 참여 권한 없음",
+                        description="파티에 참여하려면 먼저 **온보딩 과정**을 완료해야 합니다.\n\n"
+                                   "🔹 #입장-온보딩 채널에서 닉네임 설정과 역할 선택을 완료해주세요.\n"
+                                   "🔹 온보딩 완료 후 '인증완료' 역할을 받으면 파티 참여가 가능합니다.",
+                        color=discord.Color.red()
+                    )
+                    await member.send(embed=dm_embed)
+                except:
+                    # DM 전송 실패 시 채널에 임시 메시지
+                    welcome_channel = self.bot.get_channel(self.bot.welcome_channel_id)
+                    if welcome_channel:
+                        temp_msg = await welcome_channel.send(
+                            f"❌ {member.mention}님, 파티 참여를 위해서는 온보딩 과정을 먼저 완료해주세요!"
+                        )
+                        # 5초 후 메시지 삭제
+                        await asyncio.sleep(5)
+                        try:
+                            await temp_msg.delete()
+                        except:
+                            pass
+                
+                # 원래 채널로 이동 (가능한 경우)
+                if before.channel:
+                    await member.move_to(before.channel)
+                else:
+                    await member.move_to(None)  # 음성 채널에서 퇴장
+                return
+            
+            # 파티장이 재입장한 경우 무조건 참가자로 등록
+            if member.id == party_info['leader_id']:
+                if member.id not in party_info['participants']:
+                    # 관전자에 있다면 제거
+                    party_info['spectators'].discard(member.id)
+                    party_info['participants'].add(member.id)
+                    await self.update_party_card(party_info)
+                return
+            
+            # 이미 목록에 있는지 확인 (새로 입장한 멤버만 처리)
             if (member.id not in party_info['participants'] and 
-                member.id not in party_info['spectators'] and 
-                member.id != party_info['leader_id']):
+                member.id not in party_info['spectators']):
                 
                 # 참가자 자리가 있으면 참가자로, 없으면 관전자로 자동 할당
                 if len(party_info['participants']) < party_info['max_size']:
@@ -334,7 +512,6 @@ class PartyManager(commands.Cog):
                 else:
                     party_info['spectators'].add(member.id)
                 
-                # 파티 카드 업데이트
                 await self.update_party_card(party_info)
 
         # 파티 채널에서 나간 경우 - 해당 유저를 참가자/관전자 목록에서 제거
@@ -353,18 +530,17 @@ class PartyManager(commands.Cog):
             
             # 채널 업데이트 0.5초 대기
             await asyncio.sleep(0.5)
-            # 채널 객체를 다시 가져와 정확한 멤버 수를 확인
             channel = self.bot.get_channel(before.channel.id)
             if channel and not channel.members:
+                # 파티 정리
                 party_info = self.active_parties.pop(before.channel.id)
                 
-                # 설정 스레드 정리
                 if party_info["leader_id"] in self.setup_threads:
                     del self.setup_threads[party_info["leader_id"]]
                 
                 # 파티 카드 삭제
                 if party_info.get("party_card_message_id"):
-                    main_channel = self.bot.get_channel(self.bot.party_text_channel_id)
+                    main_channel = self.bot.get_channel(party_info["main_channel_id"])
                     try:
                         msg = await main_channel.fetch_message(party_info["party_card_message_id"])
                         await msg.delete()
