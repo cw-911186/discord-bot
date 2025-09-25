@@ -332,7 +332,7 @@ class FreePartyManager(commands.Cog):
                         title="🎈 자유 파티 생성 도우미", 
                         description=f"{member.mention}님, 자유 파티 정보를 설정해주세요.\n\n"
                                    f"🎮 **자유 파티**는 롤 외의 다양한 게임을 즐길 수 있는 파티입니다.\n"
-                                   f⚠️ 이 스레드는 당신만 볼 수 있는 비공개 공간입니다.",
+                                   f"⚠️ 이 스레드는 당신만 볼 수 있는 비공개 공간입니다.",
                         color=discord.Color.purple()
                     )
                     setup_view = FreePartySetupView(self.bot, member, thread)
