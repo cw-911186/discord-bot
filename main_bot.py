@@ -21,6 +21,8 @@ ALLOWED_GUILDS = [int(os.getenv('ALLOWED_GUILD_ID', '0'))]  # 실제 서버 ID�
 BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 
 # 채널 ID들 (환경변수로도 설정 가능)
+FREE_PARTY_TEXT_CHANNEL_ID = int(os.getenv('FREE_PARTY_TEXT_CHANNEL_ID', '0'))
+FREE_PARTY_TRIGGER_CHANNEL_ID = int(os.getenv('FREE_PARTY_TRIGGER_CHANNEL_ID', '0'))
 WELCOME_CHANNEL_ID = int(os.getenv('WELCOME_CHANNEL_ID', '1418458446864449541'))
 NICKNAME_CHANNEL_ID = int(os.getenv('NICKNAME_CHANNEL_ID', '1418458447246262275'))
 ROLE_CHANNEL_ID = int(os.getenv('ROLE_CHANNEL_ID', '1418630139876737066'))
@@ -51,6 +53,15 @@ class MyBot(commands.Bot):
             logging.info(f"✅ {len(synced)}개의 슬래시 커맨드 동기화 완료")
         except Exception as e:
             logging.error(f"❌ 슬래시 커맨드 동기화 실패: {e}")
+         # 채널 ID들을 봇 객체에 등록
+        self.welcome_channel_id = WELCOME_CHANNEL_ID
+        self.nickname_channel_id = NICKNAME_CHANNEL_ID
+        self.role_channel_id = ROLE_CHANNEL_ID
+        self.party_text_channel_id = PARTY_TEXT_CHANNEL_ID
+        self.party_trigger_channel_id = PARTY_TRIGGER_CHANNEL_ID
+        # 자유 파티 추가
+        self.free_party_text_channel_id = FREE_PARTY_TEXT_CHANNEL_ID
+        self.free_party_trigger_channel_id = FREE_PARTY_TRIGGER_CHANNEL_ID
 
     async def on_ready(self):
         logging.info(f"{self.user}으로 로그인 성공!")
